@@ -1,6 +1,11 @@
 const admin = require('firebase-admin');
 
 const initFirebase = () => {
+  if (!process.env.FIREBASE_PROJECT_ID) {
+    console.warn('⚠️  Firebase not configured — push notifications will be disabled');
+    return null;
+  }
+
   if (admin.apps.length > 0) return admin;
 
   admin.initializeApp({

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Send, Users, User, CheckSquare, Clock, Image } from 'lucide-react';
+import { Send, Users, User, CheckSquare, Clock, Image, Hash } from 'lucide-react';
 import api from '../services/api';
 
 export default function SendNotificationPage() {
@@ -7,8 +7,9 @@ export default function SendNotificationPage() {
     title: '',
     message: '',
     image: '',
-    target: 'all', // 'all' | 'specific' | 'selected'
+    target: 'all', // 'all' | 'specific' | 'selected' | 'token'
     specificUserId: '',
+    rawToken: '',
     scheduledAt: '',
   });
   const [users, setUsers] = useState([]);
@@ -35,21 +36,33 @@ export default function SendNotificationPage() {
     setResult(null);
     setError('');
 
-    let userIds = [];
-    if (form.target === 'specific') userIds = [form.specificUserId];
-    if (form.target === 'selected') userIds = selectedIds;
-
     try {
-      const payload = {
-        title: form.title,
-        message: form.message,
-        ...(form.image && { image: form.image }),
-        ...(userIds.length && { userIds }),
-        ...(form.scheduledAt && { scheduledAt: form.scheduledAt }),
-      };
-      const { data } = await api.post('/notifications/send', payload);
+      let data;
+
+      if (form.target === 'token') {
+        // Send directly to raw FCM token
+        ({ data } = await api.post('/notifications/send-token', {
+          title: form.title,
+          message: form.message,
+          ...(form.image && { image: form.image }),
+          token: form.rawToken,
+        }));
+      } else {
+        let userIds = [];
+        if (form.target === 'specific') userIds = [form.specificUserId];
+        if (form.target === 'selected') userIds = selectedIds;
+
+        ({ data } = await api.post('/notifications/send', {
+          title: form.title,
+          message: form.message,
+          ...(form.image && { image: form.image }),
+          ...(userIds.length && { userIds }),
+          ...(form.scheduledAt && { scheduledAt: form.scheduledAt }),
+        }));
+      }
+
       setResult(data);
-      setForm({ title: '', message: '', image: '', target: 'all', specificUserId: '', scheduledAt: '' });
+      setForm({ title: '', message: '', image: '', target: 'all', specificUserId: '', rawToken: '', scheduledAt: '' });
       setSelectedIds([]);
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to send notification');
@@ -57,6 +70,13 @@ export default function SendNotificationPage() {
       setLoading(false);
     }
   };
+
+  const targets = [
+    { value: 'all', icon: Users, label: 'All Users' },
+    { value: 'specific', icon: User, label: 'Specific User' },
+    { value: 'selected', icon: CheckSquare, label: 'Select Users' },
+    { value: 'token', icon: Hash, label: 'By Token' },
+  ];
 
   return (
     <div className="max-w-2xl">
@@ -66,7 +86,7 @@ export default function SendNotificationPage() {
         <div className="mb-4 p-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-xl text-green-700 dark:text-green-400 text-sm">
           {result.notification?.status === 'scheduled'
             ? `Notification scheduled for ${new Date(result.notification.scheduledAt).toLocaleString()}`
-            : `Sent to ${result.results?.success || 0} devices. ${result.results?.failure || 0} failed.`}
+            : `✓ Sent successfully to ${result.results?.success ?? 1} device(s).${result.results?.failure ? ` ${result.results.failure} failed.` : ''}`}
         </div>
       )}
 
@@ -115,12 +135,8 @@ export default function SendNotificationPage() {
         {/* Target */}
         <div>
           <label className="block text-sm font-medium mb-2">Send To</label>
-          <div className="grid grid-cols-3 gap-2">
-            {[
-              { value: 'all', icon: Users, label: 'All Users' },
-              { value: 'specific', icon: User, label: 'Specific User' },
-              { value: 'selected', icon: CheckSquare, label: 'Select Users' },
-            ].map(({ value, icon: Icon, label }) => (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            {targets.map(({ value, icon: Icon, label }) => (
               <button
                 key={value}
                 type="button"
@@ -138,6 +154,23 @@ export default function SendNotificationPage() {
           </div>
         </div>
 
+        {/* By Token */}
+        {form.target === 'token' && (
+          <div>
+            <label className="block text-sm font-medium mb-1">FCM Token</label>
+            <textarea
+              className="input resize-none font-mono text-xs"
+              rows={3}
+              placeholder="Paste FCM token here..."
+              value={form.rawToken}
+              onChange={(e) => setForm({ ...form, rawToken: e.target.value.trim() })}
+              required
+            />
+            <p className="text-xs text-gray-400 mt-1">Sends directly to this token without needing it registered.</p>
+          </div>
+        )}
+
+        {/* Specific User */}
         {form.target === 'specific' && (
           <div>
             <label className="block text-sm font-medium mb-1">User ID</label>
@@ -151,6 +184,7 @@ export default function SendNotificationPage() {
           </div>
         )}
 
+        {/* Select Users */}
         {form.target === 'selected' && (
           <div>
             <label className="block text-sm font-medium mb-2">
@@ -178,18 +212,20 @@ export default function SendNotificationPage() {
           </div>
         )}
 
-        {/* Schedule */}
-        <div>
-          <label className="block text-sm font-medium mb-1 flex items-center gap-1.5">
-            <Clock className="w-4 h-4" /> Schedule (optional)
-          </label>
-          <input
-            type="datetime-local"
-            className="input"
-            value={form.scheduledAt}
-            onChange={(e) => setForm({ ...form, scheduledAt: e.target.value })}
-          />
-        </div>
+        {/* Schedule (not for token mode) */}
+        {form.target !== 'token' && (
+          <div>
+            <label className="block text-sm font-medium mb-1 flex items-center gap-1.5">
+              <Clock className="w-4 h-4" /> Schedule (optional)
+            </label>
+            <input
+              type="datetime-local"
+              className="input"
+              value={form.scheduledAt}
+              onChange={(e) => setForm({ ...form, scheduledAt: e.target.value })}
+            />
+          </div>
+        )}
 
         <button
           type="submit"

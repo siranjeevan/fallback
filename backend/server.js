@@ -5,6 +5,7 @@ const mongoose = require('mongoose');
 const initFirebase = require('./firebase/admin');
 
 const app = express();
+app.set('trust proxy', 1);
 
 // Middleware
 app.use(cors({
@@ -15,8 +16,8 @@ app.use(cors({
 app.options('*', cors());
 app.use(express.json());
 
-// Init Firebase
-initFirebase();
+// Init Firebase (optional — requires .env credentials)
+try { initFirebase(); } catch (e) { console.warn('⚠️  Firebase init skipped:', e.message); }
 
 // Routes
 app.use('/api/admin', require('./routes/auth'));

@@ -8,6 +8,7 @@ const scheduledJobs = new Map();
 
 const sendFCMMessages = async (tokens, payload) => {
   const admin = initFirebase();
+  if (!admin) throw new Error('Firebase is not configured. Add FIREBASE_* credentials to .env');
   const messaging = admin.messaging();
 
   const results = { success: 0, failure: 0, invalidTokens: [] };
@@ -120,6 +121,38 @@ const executeNotification = async (notificationId, title, message, image, userId
     failureCount: results.failure,
     status: 'sent',
   });
+};
+
+exports.sendToToken = async (req, res) => {
+  try {
+    const { title, message, image, token } = req.body;
+    if (!token) return res.status(400).json({ success: false, message: 'token is required' });
+
+    const admin = initFirebase();
+    if (!admin) return res.status(500).json({ success: false, message: 'Firebase not configured' });
+
+    await admin.messaging().send({
+      token,
+      notification: {
+        title,
+        body: message,
+        ...(image && { imageUrl: image }),
+      },
+    });
+
+    await Notification.create({
+      title, message, image,
+      sentTo: 'direct-token',
+      recipientCount: 1,
+      successCount: 1,
+      failureCount: 0,
+      status: 'sent',
+    });
+
+    res.json({ success: true, results: { success: 1, failure: 0 } });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
 };
 
 exports.getHistory = async (req, res) => {
